@@ -13,6 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      pages: write
     
     steps:
       - name: Checkout repository
@@ -121,9 +122,12 @@ jobs:
           node convert.js
 
       - name: Clone wiki repository
+        env:
+          # 优先使用 PAT，如果没有则使用 GITHUB_TOKEN
+          WIKI_TOKEN: ${{ secrets.WIKI_PAT || secrets.GITHUB_TOKEN }}
         run: |
-          # 尝试克隆 wiki 仓库，如果不存在则创建
-          if git clone https://github.com/suhang12332/Swift-Craft-Launcher.wiki.git wiki-repo 2>/dev/null; then
+          # 使用 token 克隆 wiki 仓库
+          if git clone https://x-access-token:${WIKI_TOKEN}@github.com/suhang12332/Swift-Craft-Launcher.wiki.git wiki-repo 2>/dev/null; then
             echo "Wiki repository cloned successfully"
           else
             echo "Wiki repository does not exist or is empty, creating new one"
@@ -132,13 +136,15 @@ jobs:
             git init
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
-            git remote add origin https://github.com/suhang12332/Swift-Craft-Launcher.wiki.git
+            git remote add origin https://x-access-token:${WIKI_TOKEN}@github.com/suhang12332/Swift-Craft-Launcher.wiki.git
             cd ..
           fi
           
           cd wiki-repo
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          # 设置远程 URL 使用 token
+          git remote set-url origin https://x-access-token:${WIKI_TOKEN}@github.com/suhang12332/Swift-Craft-Launcher.wiki.git
 
       - name: Copy converted files to wiki repository
         run: |
@@ -158,34 +164,54 @@ jobs:
 
       - name: Commit and push to wiki repository
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 优先使用 PAT，如果没有则使用 GITHUB_TOKEN
+          WIKI_TOKEN: ${{ secrets.WIKI_PAT || secrets.GITHUB_TOKEN }}
         run: |
           cd wiki-repo
+          
+          # 确保远程 URL 使用 token
+          git remote set-url origin https://x-access-token:${WIKI_TOKEN}@github.com/suhang12332/Swift-Craft-Launcher.wiki.git
+          
           git add -A
           
-          if git diff --staged --quiet && [ -n "$(git ls-files)" ]; then
-            echo "No changes to commit"
-          else
-            # 检查是否有文件需要提交
+          # 检查是否有更改
+          if git diff --staged --quiet; then
             if [ -z "$(git ls-files)" ]; then
-              echo "No files to commit, skipping"
+              echo "No files in repository, creating initial commit"
+              git commit --allow-empty -m "Initial commit: Convert help HTML to Markdown [skip ci]"
+            else
+              echo "No changes to commit"
               exit 0
             fi
-            
-            git commit -m "Auto-update: Convert help HTML to Markdown [skip ci]" || echo "Nothing to commit"
-            git remote set-url origin https://x-access-token:${GITHUB_TOKEN}@github.com/suhang12332/Swift-Craft-Launcher.wiki.git
-            
-            # 尝试推送到 master 或 main 分支
-            if git push origin master 2>/dev/null || git push origin main 2>/dev/null; then
-              echo "Successfully pushed to wiki repository"
+          else
+            git commit -m "Auto-update: Convert help HTML to Markdown [skip ci]"
+          fi
+          
+          # 检查当前分支，如果没有则创建 master 分支
+          current_branch=$(git branch --show-current 2>/dev/null || echo "")
+          if [ -z "$current_branch" ]; then
+            git checkout -b master
+            current_branch="master"
+          fi
+          
+          # 尝试推送到当前分支
+          echo "Pushing to branch: $current_branch"
+          if git push -u origin $current_branch; then
+            echo "Successfully pushed to wiki repository"
+          else
+            # 如果失败，尝试推送到 master 或 main
+            echo "Failed to push to $current_branch, trying master..."
+            if git push -u origin master 2>/dev/null; then
+              echo "Successfully pushed to master branch"
+            elif git push -u origin main 2>/dev/null; then
+              echo "Successfully pushed to main branch"
             else
-              # 如果是新仓库，可能需要设置上游分支
-              current_branch=$(git branch --show-current || echo "master")
-              if [ -z "$current_branch" ]; then
-                git checkout -b master
-                current_branch="master"
-              fi
-              git push -u origin $current_branch || git push -u origin master || git push -u origin main
+              echo "Error: Failed to push to wiki repository"
+              echo "Please check:"
+              echo "1. The wiki repository exists and is accessible"
+              echo "2. You have set up a Personal Access Token (PAT) with repo permissions in repository secrets as WIKI_PAT"
+              echo "3. The PAT has write access to the wiki repository"
+              exit 1
             fi
           fi
 
