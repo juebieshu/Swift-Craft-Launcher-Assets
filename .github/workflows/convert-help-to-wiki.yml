@@ -148,14 +148,39 @@ jobs:
 
       - name: Copy converted files to wiki repository
         run: |
-          # 清空 wiki 仓库（保留 .git）
           cd wiki-repo
-          find . -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
           
-          # 复制转换后的文件
-          cp -r ../wiki-output/* .
+          # 只更新转换后的文件，保持原有目录结构，不删除其他文件
+          if [ -d ../wiki-output ]; then
+            # 遍历转换后的文件，只更新对应的文件
+            for lang_dir in ../wiki-output/*/; do
+              if [ -d "$lang_dir" ]; then
+                lang=$(basename "$lang_dir")
+                # 创建语言目录（如果不存在）
+                mkdir -p "$lang"
+                
+                # 复制该语言目录下的所有文件
+                for file in "$lang_dir"*; do
+                  if [ -f "$file" ]; then
+                    filename=$(basename "$file")
+                    cp "$file" "$lang/$filename"
+                    echo "Updated: $lang/$filename"
+                  fi
+                done
+              fi
+            done
+            
+            # 处理根目录下的文件（如果有）
+            for file in ../wiki-output/*; do
+              if [ -f "$file" ]; then
+                filename=$(basename "$file")
+                cp "$file" "$filename"
+                echo "Updated: $filename"
+              fi
+            done
+          fi
           
-          # 创建或更新 README.md
+          # 只在不存在时创建 README.md，不覆盖已有的
           if [ ! -f README.md ]; then
             echo "# Swift Craft Launcher Wiki" > README.md
             echo "" >> README.md
