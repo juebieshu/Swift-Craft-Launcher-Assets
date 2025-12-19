@@ -31,14 +31,22 @@ jobs:
         run: |
           cd news
           node scripts/generate-api.js
+          echo "Generated files:"
+          find api -name "*.json" | head -20
 
       - name: Commit and push API files
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}
+          echo "Checking for changes in news/api/"
+          git status news/api/
           git add -A news/api/
           git status
-          git diff --staged --quiet || git commit -m "Update API files [skip ci]"
-          git push origin HEAD:main
+          if ! git diff --staged --quiet; then
+            git commit -m "Update API files [skip ci]"
+            git push origin HEAD:main
+          else
+            echo "No changes to commit"
+          fi
 
